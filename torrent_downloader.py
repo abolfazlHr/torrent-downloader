@@ -59,26 +59,66 @@ def download_torrent(torrent_link: str, save_path: str) -> str:
         if 'ses' in locals():
             ses.pause()
 
+%%writefile /content/torrent-downloader/torrent_downloader.py
+import libtorrent as lt
+import time
+import os
+import subprocess
+import glob
+import logging
+import re  # برای استخراج فونت‌ها از .ass
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# فانکشن‌های قبلی (download_torrent و get_mkv_files) رو کپی کن از نسخه قبلی
+
 def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard', 
                  output_encode: str = None, crf: int = 24, 
                  size_string: str = None, remove_sub: bool = True) -> str:
     """
-    اضافه کردن زیرنویس به ویدیو با FFmpeg، با استفاده مستقیم از پوشه فونت‌ها.
+    اضافه کردن زیرنویس به ویدیو با FFmpeg، با استفاده فقط از فونت‌های لازم زیرنویس.
     """
     try:
+        # استخراج فونت‌های استفاده‌شده از فایل .ass
+        with open(subtitle_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        styles_section = re.search(r'$$ V4\+ Styles $$(.*?)(\[|$)', content, re.DOTALL)
+        needed_fonts = set()
+        if styles_section:
+            lines = styles_section.group(1).strip().splitlines()
+            for line in lines:
+                if line.startswith('Style:'):
+                    parts = line.split(',')
+                    if len(parts) > 2:
+                        font_name = parts[1].strip()
+                        needed_fonts.add(font_name)
+        logger.info(f"فونت‌های لازم زیرنویس: {needed_fonts}")
+
+        # پوشه اصلی فونت‌ها
+        main_fonts_dir = "/content/torrent-downloader/fonts"
+
+        # ساخت پوشه موقت برای فونت‌های لازم
+        temp_fonts_dir = "/content/temp_fonts/"
+        os.makedirs(temp_fonts_dir, exist_ok=True)
+
+        # کپی فقط فونت‌های لازم به پوشه موقت
+        for font in os.listdir(main_fonts_dir):
+            if any(needed in font for needed in needed_fonts):
+                os.system(f"cp '{os.path.join(main_fonts_dir, font)}' '{temp_fonts_dir}'")
+
+        # چک فونت‌های کپی‌شده
+        copied_fonts = glob.glob(os.path.join(temp_fonts_dir, "*.*"))
+        logger.info(f"فونت‌های کپی‌شده به موقت: {copied_fonts}")
+
+        # ساخت دستور FFmpeg
         cmd = ['ffmpeg', '-i', video_file]
         if remove_sub:
             cmd.append('-sn')
 
-        # مسیر مستقیم فونت‌ها
-        fonts_dir = "/content/torrent-downloader/fonts"
-        if not os.path.exists(fonts_dir):
-            logger.error(f"پوشه فونت‌ها {fonts_dir} پیدا نشد!")
-            return ''
-
-        # تنظیم نوع زیرنویس
+        # تنظیم نوع زیرنویس با مسیر فونت موقت
         if encode_type == 'hard':
-            cmd.extend(['-vf', f"subtitles={subtitle_file}:fontsdir={fonts_dir}"])
+            cmd.extend(['-vf', f"subtitles={subtitle_file}:fontsdir={temp_fonts_dir}"])
         else:
             cmd.extend(['-c:s', 'copy', '-metadata:s:s:0', 'language=eng', subtitle_file])
 
@@ -100,7 +140,6 @@ def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard'
     except Exception as e:
         logger.error(f"خطا تو ساخت دستور FFmpeg: {e}")
         return ''
-
 def get_mkv_files(directory: str) -> list:
     """
     پیدا کردن فایل‌های MKV تو پوشه.
