@@ -73,6 +73,26 @@ logger = logging.getLogger(__name__)
 
 # فانکشن‌های قبلی (download_torrent و get_mkv_files) رو کپی کن از نسخه قبلی
 
+%%writefile /content/torrent-downloader/torrent_downloader.py
+import libtorrent as lt
+import time
+import os
+import subprocess
+import glob
+import logging
+import re
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def download_torrent(torrent_link: str, save_path: str) -> str:
+    # کد قبلی رو کپی کن
+    pass
+
+def get_mkv_files(directory: str) -> list:
+    # کد قبلی رو کپی کن
+    pass
+
 def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard', 
                  output_encode: str = None, crf: int = 24, 
                  size_string: str = None, remove_sub: bool = True) -> str:
@@ -80,20 +100,23 @@ def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard'
     اضافه کردن زیرنویس به ویدیو با FFmpeg، با استفاده فقط از فونت‌های لازم زیرنویس.
     """
     try:
-        # استخراج فونت‌های استفاده‌شده از فایل .ass
+        # استخراج فونت‌های استفاده‌شده از فایل .ass با دیباگ
         with open(subtitle_file, 'r', encoding='utf-8') as f:
             content = f.read()
-        styles_section = re.search(r'$$ V4\+ Styles $$(.*?)(\[|$)', content, re.DOTALL)
+        styles_section = re.search(r'$$ V4\+ Styles $$(.*?)($$ |$)', content, re.DOTALL)
         needed_fonts = set()
         if styles_section:
             lines = styles_section.group(1).strip().splitlines()
+            logger.info(f"خطوط Styles: {lines}")  # دیباگ خطوط
             for line in lines:
                 if line.startswith('Style:'):
                     parts = line.split(',')
                     if len(parts) > 2:
-                        font_name = parts[1].strip()
+                        font_name = parts[1].strip()  # ستون دوم فونت هست
                         needed_fonts.add(font_name)
-        logger.info(f"فونت‌های لازم زیرنویس: {needed_fonts}")
+            logger.info(f"فونت‌های استخراج‌شده: {needed_fonts}")  # دیباگ فونت‌ها
+        else:
+            logger.warning("بخش [V4+ Styles] پیدا نشد!")
 
         # پوشه اصلی فونت‌ها
         main_fonts_dir = "/content/torrent-downloader/fonts"
@@ -101,15 +124,26 @@ def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard'
         # ساخت پوشه موقت برای فونت‌های لازم
         temp_fonts_dir = "/content/temp_fonts/"
         os.makedirs(temp_fonts_dir, exist_ok=True)
+        # پاک کردن فونت‌های قبلی موقت
+        for f in os.listdir(temp_fonts_dir):
+            os.remove(os.path.join(temp_fonts_dir, f))
 
         # کپی فقط فونت‌های لازم به پوشه موقت
-        for font in os.listdir(main_fonts_dir):
-            if any(needed in font for needed in needed_fonts):
+        if needed_fonts:
+            for font in os.listdir(main_fonts_dir):
+                if any(needed.lower() in font.lower() for needed in needed_fonts):
+                    os.system(f"cp '{os.path.join(main_fonts_dir, font)}' '{temp_fonts_dir}'")
+            logger.info(f"فونت‌های کپی‌شده به موقت: {os.listdir(temp_fonts_dir)}")
+        else:
+            logger.warning("هیچ فونتی استخراج نشد، همه فونت‌ها کپی می‌شن!")
+            for font in os.listdir(main_fonts_dir):
                 os.system(f"cp '{os.path.join(main_fonts_dir, font)}' '{temp_fonts_dir}'")
 
-        # چک فونت‌های کپی‌شده
+        # چک فونت‌های موقت
         copied_fonts = glob.glob(os.path.join(temp_fonts_dir, "*.*"))
-        logger.info(f"فونت‌های کپی‌شده به موقت: {copied_fonts}")
+        if not copied_fonts:
+            logger.error(f"هیچ فونتی به {temp_fonts_dir} کپی نشد!")
+            return ''
 
         # ساخت دستور FFmpeg
         cmd = ['ffmpeg', '-i', video_file]
@@ -135,6 +169,7 @@ def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard'
             cmd.extend(['-vf', f'scale={size_string}'])
 
         cmd.extend(['-c:a', 'copy'])
+        logger.info(f"دستور FFmpeg: {' '.join(cmd)}")
         return ' '.join(cmd)
 
     except Exception as e:
