@@ -93,6 +93,26 @@ def get_mkv_files(directory: str) -> list:
     # کد قبلی رو کپی کن
     pass
 
+%%writefile /content/torrent-downloader/torrent_downloader.py
+import libtorrent as lt
+import time
+import os
+import subprocess
+import glob
+import logging
+import re
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def download_torrent(torrent_link: str, save_path: str) -> str:
+    # کد قبلی رو کپی کن
+    pass
+
+def get_mkv_files(directory: str) -> list:
+    # کد قبلی رو کپی کن
+    pass
+
 def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard', 
                  output_encode: str = None, crf: int = 24, 
                  size_string: str = None, remove_sub: bool = True) -> str:
@@ -100,23 +120,40 @@ def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard'
     اضافه کردن زیرنویس به ویدیو با FFmpeg، با استفاده فقط از فونت‌های لازم زیرنویس.
     """
     try:
-        # استخراج فونت‌های استفاده‌شده از فایل .ass با دیباگ
+        # استخراج فونت‌های استفاده‌شده از [V4+ Styles]
         with open(subtitle_file, 'r', encoding='utf-8') as f:
             content = f.read()
-        styles_section = re.search(r'$$ V4\+ Styles $$(.*?)($$ |$)', content, re.DOTALL)
+        styles_section = re.search(r'\[V4\+ Styles\](.*?)(\[|$)', content, re.DOTALL)
         needed_fonts = set()
         if styles_section:
             lines = styles_section.group(1).strip().splitlines()
-            logger.info(f"خطوط Styles: {lines}")  # دیباگ خطوط
+            logger.info(f"خطوط Styles: {lines}")
             for line in lines:
                 if line.startswith('Style:'):
                     parts = line.split(',')
                     if len(parts) > 2:
-                        font_name = parts[1].strip()  # ستون دوم فونت هست
+                        font_name = parts[1].strip()
                         needed_fonts.add(font_name)
-            logger.info(f"فونت‌های استخراج‌شده: {needed_fonts}")  # دیباگ فونت‌ها
-        else:
-            logger.warning("بخش [V4+ Styles] پیدا نشد!")
+            logger.info(f"فونت‌های Styles: {needed_fonts}")
+
+        # استخراج فونت‌های استفاده‌شده از [Events] (با \fn)
+        events_section = re.search(r'\[Events\](.*?)(\[|$)', content, re.DOTALL)
+        if events_section:
+            lines = events_section.group(1).strip().splitlines()
+            for line in lines:
+                if line.startswith('Dialogue:'):
+                    text_part = line.split(',', 9)[-1]  # متن بعد از 9 کاما
+                    font_matches = re.findall(r'\\fn([^\\}]+)', text_part)
+                    for font in font_matches:
+                        needed_fonts.add(font.strip())
+            logger.info(f"فونت‌های Events: {font_matches}")
+
+        # حذف فونت‌های خالی یا نامعتبر
+        needed_fonts = {f for f in needed_fonts if f}
+
+        # اگر فونتی پیدا نشد، هشدار بده
+        if not needed_fonts:
+            logger.warning("هیچ فونتی استخراج نشد، همه فونت‌ها کپی می‌شن!")
 
         # پوشه اصلی فونت‌ها
         main_fonts_dir = "/content/torrent-downloader/fonts"
@@ -175,6 +212,7 @@ def add_subtitles(video_file: str, subtitle_file: str, encode_type: str = 'hard'
     except Exception as e:
         logger.error(f"خطا تو ساخت دستور FFmpeg: {e}")
         return ''
+        
 def get_mkv_files(directory: str) -> list:
     """
     پیدا کردن فایل‌های MKV تو پوشه.
